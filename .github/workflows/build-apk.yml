@@ -19,7 +19,7 @@ jobs:
           cp index.html www/index.html
           npm init -y
           npm install @capacitor/core @capacitor/cli @capacitor/android
-          npx cap init "الهروب 13" "com.alhuroob13" --web-dir=www --no-interactive
+          npx cap init "الهروب 13" "com.alhuroob13" --web-dir=www
           npx cap add android
           npx cap sync android
 
