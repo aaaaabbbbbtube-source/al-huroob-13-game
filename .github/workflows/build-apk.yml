@@ -15,7 +15,7 @@ jobs:
           node-version: 20
 
       - run: |
-          mkdir www
+          mkdir -p www
           cp index.html www/index.html
           npm init -y
           npm install @capacitor/core @capacitor/cli @capacitor/android
