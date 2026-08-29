@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>الهروب 13 - موبايل</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#07090b;touch-action:none}
+body{font-family:Arial,sans-serif;color:white;-webkit-user-select:none;user-select:none;background:#05070a}
+#wrap{position:fixed;inset:0;overflow:hidden}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;background:linear-gradient(#101a22,#06090c)}
+#hud{position:absolute;top:max(10px,env(safe-area-inset-top));left:14px;right:14px;display:flex;justify-content:space-between;z-index:3;font-weight:800;pointer-events:none;gap:10px}
+.badge{background:linear-gradient(180deg,#18242bd9,#0a1014e8);border:1px solid #60727b66;border-radius:14px;padding:9px 14px;text-shadow:0 2px 4px #000;box-shadow:0 8px 25px #0008;backdrop-filter:blur(8px)}
+#touch{position:absolute;inset:0;z-index:4;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+#stick{position:absolute;left:24px;bottom:28px;width:140px;height:140px;border-radius:50%;background:#ffffff18;border:2px solid #ffffff38;pointer-events:auto}
+#nub{position:absolute;left:42px;top:42px;width:56px;height:56px;border-radius:50%;background:#f39a25d9;box-shadow:0 4px 18px #0008}
+#shoot{position:absolute;right:25px;bottom:34px;width:104px;height:104px;border-radius:50%;background:#d8483ecc;border:3px solid #fff7;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:900;pointer-events:auto}
+#start,#end{position:absolute;inset:0;z-index:8;background:#05080bd9;display:flex;align-items:center;justify-content:center;text-align:center}
+.card{width:min(420px,86vw);background:linear-gradient(#18232a,#0b0f12);border:1px solid #46545b;border-radius:24px;padding:26px;box-shadow:0 20px 80px #000}
+h1{font-size:44px;margin:0 0 8px;color:#ff9d25}p{line-height:1.7;color:#c3cbd0}
+button{border:0;border-radius:14px;background:#f39a25;color:#17100a;font-size:20px;font-weight:900;padding:14px 30px;box-shadow:0 5px #8b4d0d}
+#end{display:none}
+</style>
+</head>
+<body>
+<div id="wrap">
+<canvas id="game" width="900" height="600"></canvas>
+<div id="hud"><div class="badge">❤ <span id="hp">100</span></div><div class="badge">المرحلة <span id="level">1</span>/10 · الوحوش <span id="progress">0/6</span></div><div class="badge">★ <span id="score">0</span></div></div>
+<div id="touch"><div id="stick"><div id="nub"></div></div><div id="shoot">●</div></div>
+<div id="start"><div class="card"><h1>الهروب 13</h1><p>لعبة أكشن للموبايل.<br>اسحب العصا اليسرى للتحرك واضغط الزر الأحمر للإطلاق.</p><button id="startBtn">ابدأ</button></div></div>
+<div id="stage"><div class="stageCard"><div class="stageNum">المرحلة</div><div class="stageName" id="stageName">1</div></div></div>
+<div id="end"><div class="card"><h1 id="endTitle"></h1><p id="endText"></p><button id="again">إعادة اللعب</button></div></div>
+<div id="rotate"><div class="rotateCard"><div class="rotateIcon">📱↔️</div><h2>دوّر الموبايل</h2><p>اللعبة مصممة بالعرض. لفّ الشاشة على الوضع الأفقي وابدأ اللعب.</p></div></div>
+</div>
+<script>
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+const W=900,H=600;
+let running=false,level=1,score=0,hp=100,kills=0,last=0,spawnT=0,shotT=0,stageTimer=0;
+let stageKills=0,stageQuota=6,stageSpawned=0;
+let bullets=[],foes=[],particles=[],flash=0;
+const player={x:450,y:430,r:18,ang:-Math.PI/2,speed:240};
+const stick={x:0,y:0,active:false,id:null}, shooting={on:false,id:null};
+
+function resize(){
+  // CSS scales the fixed logical canvas to the screen.
+  canvas.width=W;canvas.height=H;
+}
+function setUI(){
+  hpEl.textContent=Math.max(0,Math.ceil(hp));
+  levelEl.textContent=level;
+  scoreEl.textContent=score;progressEl.textContent=stageKills+'/'+stageQuota;
+}
+const hpEl=document.getElementById('hp'),levelEl=document.getElementById('level'),scoreEl=document.getElementById('score'),progressEl=document.getElementById('progress');
+
+const stageNames=['البداية','الممر المظلم','المدينة المهجورة','المحطة','المختبر','الميناء','الأنفاق','القلعة','منطقة الصفر','الطريق الأخير'];
+function showStage(){
+  const box=document.getElementById('stage'),name=document.getElementById('stageName');
+  name.textContent=(stageNames[level-1]||('المرحلة '+level))+' — '+stageQuota+' وحوش';
+  box.style.display='flex'; stageTimer=1.35;
+  setTimeout(()=>{if(stageTimer>0)box.style.display='none'},1200);
+}
+function reset(){
+  running=true;level=1;score=0;hp=100;kills=0;stageKills=0;stageQuota=6;stageSpawned=0;spawnT=.2;shotT=0;stageTimer=0;bullets=[];foes=[];particles=[];flash=0;
+  player.x=450;player.y=430;player.ang=-Math.PI/2;
+  document.getElementById('start').style.display='none';
+  document.getElementById('end').style.display='none';
+  setUI();showStage();last=performance.now();requestAnimationFrame(loop);
+}
+function finish(win){
+  running=false;shooting.on=false;stick.active=false;stick.x=stick.y=0;resetNub();
+  document.getElementById('endTitle').textContent=win?'🏆 فزت!':'💀 خسرت!';
+  document.getElementById('endText').textContent=win?`هزمت الزعيم وأكملت 10 مراحل. النتيجة ${score}.`:`وصلت إلى المرحلة ${level}. النتيجة ${score}.`;
+  document.getElementById('end').style.display='flex';
+}
+function spawn(){
+  const side=Math.floor(Math.random()*4);
+  let x,y;
+  if(side===0){x=-30;y=Math.random()*H}else if(side===1){x=W+30;y=Math.random()*H}
+  else if(side===2){x=Math.random()*W;y=-30}else{x=Math.random()*W;y=H+30}
+  const boss=level===10 && stageSpawned===stageQuota-1;
+  foes.push({x,y,r:boss?52:17,h:boss?24:1,s:boss?42:58+level*4,boss});
+}
+function shoot(){
+  if(!running||shotT>0)return;
+  shotT=.12;
+  const a=player.ang;
+  bullets.push({x:player.x+Math.cos(a)*25,y:player.y+Math.sin(a)*25,
+    vx:Math.cos(a)*600,vy:Math.sin(a)*600,life:1});
+}
+function update(dt){
+  player.x=Math.max(25,Math.min(W-25,player.x+stick.x*player.speed*dt));
+  player.y=Math.max(25,Math.min(H-25,player.y+stick.y*player.speed*dt));
+  if(Math.hypot(stick.x,stick.y)>.08)player.ang=Math.atan2(stick.y,stick.x);
+  shotT=Math.max(0,shotT-dt);
+  if(shooting.on)shoot();
+  spawnT-=dt;
+  if(spawnT<=0 && stageSpawned<stageQuota){
+    spawnT=Math.max(.38,1.05-level*.065);
+    if(foes.length<5){spawn();stageSpawned++;}
+  }
+  for(const b of bullets){b.x+=b.vx*dt;b.y+=b.vy*dt;b.life-=dt}
+  bullets=bullets.filter(b=>b.life>0&&b.x>-50&&b.x<W+50&&b.y>-50&&b.y<H+50);
+  for(const e of foes){
+    const a=Math.atan2(player.y-e.y,player.x-e.x),d=Math.hypot(player.x-e.x,player.y-e.y);
+    e.x+=Math.cos(a)*e.s*dt;e.y+=Math.sin(a)*e.s*dt;
+    if(d<e.r+player.r)hp-=e.boss?22*dt:30*dt;
+  }
+  for(const b of bullets){
+    for(const e of foes){
+      if(e.dead)continue;
+      if(Math.hypot(b.x-e.x,b.y-e.y)<e.r+6){
+        b.life=0;e.h--;
+        if(e.h<=0){e.dead=true;kills++;stageKills++;score+=e.boss?600:25;flash=.12;
+          for(let i=0;i<(e.boss?22:8);i++){const a=Math.random()*Math.PI*2;particles.push({x:e.x,y:e.y,vx:Math.cos(a)*(60+Math.random()*120),vy:Math.sin(a)*(60+Math.random()*120),life:.45});} }
+        break;
+      }
+    }
+  }
+  foes=foes.filter(e=>!e.dead);
+  for(const q of particles){q.x+=q.vx*dt;q.y+=q.vy*dt;q.life-=dt}
+  particles=particles.filter(q=>q.life>0);
+  flash=Math.max(0,flash-dt);
+  if(stageKills>=stageQuota && foes.length===0){
+    if(level<10){
+      level++; stageKills=0; stageQuota=5+level*2; stageSpawned=0; score+=100+level*25;
+      bullets=[]; foes=[]; spawnT=1.2; showStage();
+    }else{
+      finish(true);
+    }
+  }
+  if(hp<=0)finish(false);
+  setUI();
+}
+function draw(){
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#16252d');g.addColorStop(.55,'#0b1115');g.addColorStop(1,'#05070a');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  // modern floor perspective
+  ctx.strokeStyle='#1c3039';ctx.lineWidth=2;
+  for(let y=300;y<H;y+=28){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
+  for(let x=0;x<=W;x+=75){ctx.beginPath();ctx.moveTo(450,300);ctx.lineTo(x,H);ctx.stroke()}
+  // glowing central arena
+  const glow=ctx.createRadialGradient(450,310,20,450,310,260);glow.addColorStop(0,'#17343c55');glow.addColorStop(1,'#0000');ctx.fillStyle=glow;ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle='#31515c';ctx.lineWidth=3;ctx.beginPath();ctx.arc(450,310,210,0,Math.PI*2);ctx.stroke();
+  ctx.strokeStyle='#5e8b9550';ctx.lineWidth=1;ctx.beginPath();ctx.arc(450,310,175,0,Math.PI*2);ctx.stroke();
+
+  for(const q of particles){ctx.globalAlpha=Math.max(0,q.life/.45);ctx.fillStyle='#ffb43b';ctx.beginPath();ctx.arc(q.x,q.y,3,0,Math.PI*2);ctx.fill();}ctx.globalAlpha=1;
+  for(const b of bullets){
+    ctx.strokeStyle='#ffd15a88';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(b.x-b.vx*.025,b.y-b.vy*.025);ctx.lineTo(b.x,b.y);ctx.stroke();
+    ctx.fillStyle='#fff1a3';ctx.beginPath();ctx.arc(b.x,b.y,4,0,Math.PI*2);ctx.fill();
+  }
+
+  for(const e of foes){
+    ctx.save();ctx.translate(e.x,e.y);
+    const eg=ctx.createRadialGradient(-e.r*.3,-e.r*.35,2,0,0,e.r);
+    eg.addColorStop(0,e.boss?'#ff6b55':'#b95a52');eg.addColorStop(1,e.boss?'#64151f':'#3a171c');
+    ctx.fillStyle=eg;ctx.beginPath();ctx.arc(0,0,e.r,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle=e.boss?'#ffb14a88':'#ff725c55';ctx.lineWidth=3;ctx.stroke();
+    ctx.fillStyle=e.boss?'#fff4d0':'#ffb08d';
+    const eyeR=e.boss?13:3.5, eyeY=-e.r*.16, eyeX=e.boss?e.r*.30:6;
+    ctx.beginPath();ctx.arc(-eyeX,eyeY,eyeR,0,Math.PI*2);ctx.arc(eyeX,eyeY,eyeR,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle=e.boss?'#ff2e24':'#271014';
+    const pupil=e.boss?5:1.7;
+    ctx.beginPath();ctx.arc(-eyeX,eyeY,pupil,0,Math.PI*2);ctx.arc(eyeX,eyeY,pupil,0,Math.PI*2);ctx.fill();
+    if(e.boss){ctx.strokeStyle='#ff624f';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(-e.r*.45,-e.r*.48);ctx.lineTo(-e.r*.1,-e.r*.25);ctx.moveTo(e.r*.45,-e.r*.48);ctx.lineTo(e.r*.1,-e.r*.25);ctx.stroke();}
+    if(e.boss){
+      ctx.font='900 18px Arial';ctx.textAlign='center';ctx.fillStyle='#ffb13b';ctx.fillText('الزعيم',0,-e.r-28);
+      ctx.fillStyle='#2b0d12';ctx.fillRect(-45,-e.r-18,90,7);
+      ctx.fillStyle='#ff3d3d';ctx.fillRect(-45,-e.r-18,90*Math.max(0,e.h/24),7);
+    }
+    ctx.restore();
+  }
+
+  ctx.save();ctx.translate(player.x,player.y);
+  ctx.strokeStyle='#53d9ff55';ctx.lineWidth=4;ctx.beginPath();ctx.arc(0,0,28+Math.sin(performance.now()/180)*2,0,Math.PI*2);ctx.stroke();
+  ctx.rotate(player.ang);
+  const pg=ctx.createRadialGradient(-5,-6,2,0,0,22);pg.addColorStop(0,'#ffffff');pg.addColorStop(1,'#6d8792');
+  ctx.fillStyle=pg;ctx.beginPath();ctx.arc(0,0,player.r,0,7);ctx.fill();
+  ctx.shadowColor='#54d9ff';ctx.shadowBlur=14;ctx.fillStyle='#54c9ef';ctx.fillRect(4,-5,30,10);ctx.shadowBlur=0;ctx.restore();
+}
+function loop(t){
+  if(!running)return;
+  const dt=Math.min(.035,(t-last)/1000);last=t;
+  if(stageTimer>0){stageTimer-=dt;if(stageTimer<=0)document.getElementById('stage').style.display='none'}
+  update(dt);draw();
+  if(flash>0){ctx.fillStyle='rgba(255,170,70,'+(flash*1.8)+')';ctx.fillRect(0,0,W,H)}
+  requestAnimationFrame(loop);
+}
+
+function resetNub(){document.getElementById('nub').style.transform='translate(0,0)'}
+
+function moveStick(e){
+  const el=document.getElementById('stick'),r=el.getBoundingClientRect();
+  const cx=r.left+r.width/2,cy=r.top+r.height/2;
+  let dx=e.clientX-cx,dy=e.clientY-cy,d=Math.hypot(dx,dy),max=48;
+  if(d>max){dx=dx/d*max;dy=dy/d*max}
+  stick.x=dx/max;stick.y=dy/max;
+  document.getElementById('nub').style.transform=`translate(${dx}px,${dy}px)`;
+}
+const stickEl=document.getElementById('stick');
+stickEl.addEventListener('pointerdown',e=>{
+  e.preventDefault();stick.active=true;stick.id=e.pointerId;stickEl.setPointerCapture(e.pointerId);moveStick(e)
+});
+stickEl.addEventListener('pointermove',e=>{if(stick.active&&e.pointerId===stick.id){e.preventDefault();moveStick(e)}});
+function endStick(e){if(e.pointerId!==stick.id)return;stick.active=false;stick.x=stick.y=0;resetNub()}
+stickEl.addEventListener('pointerup',endStick);stickEl.addEventListener('pointercancel',endStick);
+
+const fire=document.getElementById('shoot');
+fire.addEventListener('pointerdown',e=>{e.preventDefault();shooting.on=true;shooting.id=e.pointerId;fire.setPointerCapture(e.pointerId);shoot()});
+function endFire(e){if(e.pointerId===shooting.id){shooting.on=false;shooting.id=null}}
+fire.addEventListener('pointerup',endFire);fire.addEventListener('pointercancel',endFire);
+
+document.getElementById('startBtn').onclick=reset;
+document.getElementById('again').onclick=reset;
+window.addEventListener('contextmenu',e=>e.preventDefault());
+
+const rotate=document.getElementById('rotate');
+function landscapeCheck(){
+  const portrait=window.innerHeight>window.innerWidth;
+  rotate.style.display=portrait?'flex':'none';
+}
+window.addEventListener('resize',landscapeCheck);
+window.addEventListener('orientationchange',()=>setTimeout(landscapeCheck,150));
+landscapeCheck();
+resize();draw();setUI();
+
+</script>
+</body>
+</html>
